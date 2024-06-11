@@ -15,7 +15,7 @@ import (
 
 func main() {
 	var dslConfig string
-	flag.StringVar(&dslConfig, "dslConfig", "workflow3.yaml", "dslConfig specify the yaml file for the dsl workflow.")
+	flag.StringVar(&dslConfig, "dslConfig", "dsl/workflow1.yaml", "dslConfig specify the yaml file for the dsl workflow.")
 	flag.Parse()
 
 	data, err := os.ReadFile(dslConfig)
