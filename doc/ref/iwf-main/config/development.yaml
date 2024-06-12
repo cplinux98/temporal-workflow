@@ -1,0 +1,15 @@
+log:
+  stdout: true
+  level: info
+  levelKey: "level"
+api:
+  port: 8801
+interpreter:
+  temporal:
+    hostPort: localhost:7233
+    namespace: default
+    prometheus:
+      listenAddress: 0.0.0.0:8890
+      timerType: histogram
+  defaultWorkflowConfig:
+    continueAsNewThreshold: 100

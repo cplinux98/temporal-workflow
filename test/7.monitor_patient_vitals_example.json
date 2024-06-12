@@ -1,0 +1,37 @@
+{
+  "id": "monitorPatientVitalsWorkflow",
+  "version": "1.0",
+  "name": "Monitor Patient Vitals Workflow",
+  "states": [
+    {
+      "name": "Monitor Vitals",
+      "type": "event",
+      "onEvents": [
+        {
+          "eventRefs": [
+            "High Body Temp Event",
+            "High Blood Pressure Event"
+          ],
+          "actions": [
+            {
+              "functionRef": "Invoke Dispatch Nurse Function"
+            }
+          ]
+        },
+        {
+          "eventRefs": [
+            "High Respiration Rate Event"
+          ],
+          "actions": [
+            {
+              "functionRef": "Invoke Dispatch Pulmonologist Function"
+            }
+          ]
+        }
+      ],
+      "end": true
+    }
+  ],
+  "functions": "file://my/services/asyncapipatientservicedefs.json",
+  "events": "file://my/events/patientcloudeventsdefs.yml"
+}

@@ -1,0 +1,31 @@
+{
+  "id": "customerEmailWorkflow",
+  "version": "1.0",
+  "specVersion": "0.8",
+  "name": "Send Customer Email Workflow",
+  "states": [
+    {
+      "name": "Send Email",
+      "type": "operation",
+      "actions": [
+        {
+          "functionRef": {
+            "invoke": "async",
+            "refName": "Invoke Send Email Function",
+            "arguments": {
+              "customer": "${ .customer }"
+            }
+          }
+        }
+      ],
+      "end": true
+    }
+  ],
+  "functions": [
+    {
+      "name": "Invoke Send Email Function",
+      "operation": "openapiservicedef.json#sendEmail",
+      "type": "rest"
+    }
+  ]
+}
