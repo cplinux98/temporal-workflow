@@ -1,0 +1,78 @@
+id: "helloworld"  # 工作流的唯一标识
+name: "示例workflow"  # 工作流的名称
+version: "1.0" # 工作流的版本
+description: "用于测试" # 工作流的描述
+tags:  # 工作流的标签 键/值映射
+  key1: value1
+  key2: value2
+start: # 配置工作流启动信息
+  rootNode: "startNode" # root节点
+  schedule: # 如何调度运行该工作流
+    cron: "" # cron表达式
+    on: "" # 触发工作流的事件
+variables:  # 工作流的公共变量
+  key1: value1
+  key2: value2
+nodes:  # 工作流的节点
+  - id: 1  # 当前节点的ID
+    type: NODE_SWITCH  # 节点的基本类型，节点切换
+    instance:
+      switchNode:
+        subType: "SWITCH_EVENT"  # 节点切换的子类型，事件切换
+        dataSource: # 数据源
+          events:  # 监听的事件
+            - "Guest Booking Event"
+          paramOutput: # 从事件里面读取的参数
+            - param:
+                name: "bookingId"
+              expression: ".node.guest_booking_event.booking_id"  # 事件信息里面变量的路径，类似jsonpath
+              type: "string" # 参数类型
+          branches: # 切换的分支列表
+            - rules:  # 判断的条件
+                - param:
+                    name: "bookingId"
+                  operator: "EQUAL"
+                  value: "1"
+                  type: "string"
+              transition: 2  # 判断成功后，切换到哪个节点
+            - rules:  # 判断的条件
+                - param:
+                    name: "bookingId"
+                  operator: "NOT_EQUAL"
+                  value: "1"
+                  type: "string"
+              transition: 2  # 判断成功后，切换到哪个节点
+#    name: "节点01（启动节点）"  # 当前节点的展示名称
+#    arguments: # 要输入给动作的参数，value为variables里面的key
+#      key1: key1
+#    output: result1 # 动作输出的结果，全局保留，可以用于其他节点参数
+  - id: 2  # 当前节点的ID
+    type: NODE_SLEEP  # 节点的基本类型，节点切换
+    instance:
+      sleepNode:
+        subType: "SLEEP_TIME"  # 休眠节点
+        timeInput:
+          delta: "3600000"
+  - id: 3  # 当前节点的ID
+    type: NODE_OPERATION  # 操作节点类型
+    instance:
+      operationNode:  # 操作节点
+        attributeData:  # 操作节点的属性数据
+          actionId: "SEND_PUSH"  # 动作ID，推送事件
+          actionInput:  # 推送动作的输入参数
+            pushInput:
+              contendId: 123
+              contextVariables:
+                - "booking_id"
+          actionOutput:  # 动作的结果，最终会把输出的结果存储到全局变量里面
+            save: true  # 是否保存到全局，供其他部分使用
+            key: sendPushResult  # 保存到全局的key
+        onErrors:  stop # 当前任务发生错误时如何处理，立即停止？还是跳过这个任务？还是错误时进入其他node？
+
+
+#    name: "节点02（终止节点）"  # 当前节点的展示名称
+#    arguments: # 要输入给动作的参数
+#      key1: result1
+#    output: result2 # 动作输出的结果，全局保留，可以用于其他节点参数
+
+

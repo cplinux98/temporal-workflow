@@ -10,11 +10,20 @@
       1. serverlessworkflow，目前这个项目还处于沙盒阶段，没有发布正式版本，每个版本之间变化差距有点大，且需要实现的功能有很多
       2. 简单的基于DAG的DSL表达式，吸收serverlessworkflow一些思想，后续有需求再更新迭代
 2. 开发计划
-   1. 初步计划使用简单的基于DAG的DSL表达式来实现，基于serverlessworkflow实现的工作量很大，不是现在能够实现的，参考下面两篇文章先实现初版
+   1. 初步计划使用简单的基于DAG的DSL表达式来实现，基于serverlessworkflow实现的工作量很大，不是现在能够实现的，参考下面的文章和项目先实现初版
       1. https://medium.com/airbnb-engineering/journey-platform-a-low-code-tool-for-creating-interactive-user-workflows-9954f51fa3f8
       2. https://medium.com/@PhakornKiong/my-naive-implementation-of-no-code-low-code-tool-253e678f2456
+      3. https://github.com/n8n-io/n8n
    2. 初版实现功能
-      1. 
+      1. 能够接收使用event、webhook、手动、cron来运行workflow实例
+      2. workflow节点：
+         1. 事件接收节点
+         2. shell、python代码运行节点
+         3. switch分支节点
+         4. 执行http节点
+      3. workflow实例能够运行shell、python代码任务
+      4. workflow实例失败时能够触发通知
+      5. 能够查看当前workflow实例运行到了哪个节点
 
 
 
