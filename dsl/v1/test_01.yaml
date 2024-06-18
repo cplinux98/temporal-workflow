@@ -71,7 +71,20 @@ nodes:  # 工作流的节点
     activity: "ShellCommand"
     activityVersion: "1"
     activityParameters:
-      command: "echo2 'hello  simple' && exit 1"
+      command: "sleep 36000"
+    retryOnFail: false
+    maxTries: 0
+    waitBetweenTries: 0
+    alwaysOutputData: true
+    onError: "continueRegularOutput"
+  - id: "simple_node2"  # 当前节点的ID
+    name: "普通node节点"
+    description: "普通node节点"
+    position: [ "500", "600" ]
+    activity: "ShellCommand"
+    activityVersion: "1"
+    activityParameters:
+      command: "echo 'hello  simple' && exit 0"
     retryOnFail: false
     maxTries: 0
     waitBetweenTries: 0
@@ -87,4 +100,7 @@ edges:
   - id: "event_start_node-simple_node"
     source: "event_start_node"
     target: "simple_node"
+  - id: "simple_node-simple_node2"
+    source: "simple_node"
+    target: "simple_node2"
 

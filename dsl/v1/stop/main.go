@@ -16,7 +16,12 @@ func main() {
 	}
 	defer c.Close()
 
-	err = c.CancelWorkflow(context.Background(), "dsl_69a89bc6-657e-4450-9e3d-110b182e164c", "f9443a84-2819-4a48-8029-e95b236ba113")
+	err = c.TerminateWorkflow(context.Background(), "greeting-workflow", "ab779394-f83d-4938-a899-47859eee3455", "stop")
+	if err != nil {
+		log.Fatalln("Unable to terminate workflow", err)
+	}
+
+	err = c.CancelWorkflow(context.Background(), "greeting-workflow", "ab779394-f83d-4938-a899-47859eee3455")
 	if err != nil {
 		log.Fatalln("Unable to cancel workflow", err)
 	}

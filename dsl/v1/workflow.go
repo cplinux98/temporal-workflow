@@ -11,6 +11,13 @@ import (
 	"time"
 )
 
+// WorkflowState 工作流运行状态
+type WorkflowState struct {
+	CurrentNodeIds     []string            // 当前运行节点id
+	CompletedNodeIds   map[string]struct{} // 运行完成的节点id
+	NotExecutedNodeIds map[string]struct{} // 没有执行的节点id
+}
+
 // SimpleDSLWorkflow 解析DSL中的node并进行运行
 func SimpleDSLWorkflow(ctx workflow.Context, dslWorkflow Workflow, start string) ([]byte, error) {
 	// 先把初始的共享变量存储起来
@@ -20,6 +27,30 @@ func SimpleDSLWorkflow(ctx workflow.Context, dslWorkflow Workflow, start string)
 	//for k, v := range dslWorkflow.Variables {
 	//	shareVariables[k] = v
 	//}
+
+	// 初始化状态
+	state := WorkflowState{
+		CurrentNodeIds:     []string{},
+		CompletedNodeIds:   make(map[string]struct{}),
+		NotExecutedNodeIds: make(map[string]struct{}),
+	}
+
+	// 把所有节点标记为未运行
+	for _, node := range dslWorkflow.Nodes {
+		state.NotExecutedNodeIds[node.Id] = struct{}{}
+	}
+
+	// 把开始节点标记为当前运行的节点
+	//state.CurrentNodeIds = append(state.CurrentNodeIds, start)
+
+	// 注册一个查询方法
+	err := workflow.SetQueryHandler(ctx, "current_state", func() (WorkflowState, error) {
+		return state, nil
+	})
+	if err != nil {
+		fmt.Println("SetQueryHandler", err)
+		return nil, err
+	}
 
 	shareVariables := sync.Map{}
 	shareVariables.Store("variables", dslWorkflow.Variables)
@@ -67,6 +98,10 @@ func SimpleDSLWorkflow(ctx workflow.Context, dslWorkflow Workflow, start string)
 			if !markedNodes[nodeId] {
 				continue
 			}
+			// 更新运行状态
+			state.CurrentNodeIds = append(state.CurrentNodeIds, nodeId)
+			delete(state.NotExecutedNodeIds, nodeId)
+
 			// 根据id获取node对象
 			node := getNodeByID(dslWorkflow.Nodes, nodeId)
 
@@ -111,6 +146,10 @@ func SimpleDSLWorkflow(ctx workflow.Context, dslWorkflow Workflow, start string)
 				// 完成activity的回调函数
 				var result interface{}
 				err2 := f.Get(ctx, &result)
+				// 无论运行状态是正常还是异常，这个节点到这里都结束了，更新节点状态
+				state.CompletedNodeIds[nodeId] = struct{}{}
+				state.CurrentNodeIds = removeNode(state.CurrentNodeIds, nodeId)
+
 				if err2 != nil {
 					switch node.OnError {
 					case ContinueErrorOutput:
@@ -140,6 +179,10 @@ func SimpleDSLWorkflow(ctx workflow.Context, dslWorkflow Workflow, start string)
 						"error":  err2,
 					})
 				}
+				//// 把完成的节点状态更新
+				//state.CompletedNodeIds[nodeId] = struct{}{}
+				//state.CurrentNodeIds = removeNode(state.CurrentNodeIds, nodeId)
+
 				// 转换结果为json格式
 				byteResult, err := json.Marshal(result)
 				if err != nil {
@@ -299,4 +342,14 @@ func convertSyncMapToMap(syncMap *sync.Map) map[string]interface{} {
 		return true
 	})
 	return regularMap
+}
+
+// 删除 slice 中的某个元素
+func removeNode(slice []string, nodeID string) []string {
+	for i, id := range slice {
+		if id == nodeID {
+			return append(slice[:i], slice[i+1:]...)
+		}
+	}
+	return slice
 }
