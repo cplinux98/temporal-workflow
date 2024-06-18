@@ -1,5 +1,5 @@
-id: "helloworld"  # 工作流的唯一标识
-name: "示例workflow"  # 工作流的名称
+id: "test_01"  # 工作流的唯一标识
+name: "测试workflow"  # 工作流的名称
 version: "1.0" # 工作流的版本
 description: "用于测试" # 工作流的描述
 tags:  # 工作流的标签 键/值映射
@@ -29,7 +29,7 @@ nodes:  # 工作流的节点
     name: "计划任务启动的node"
     description: "当计划任务到期时触发的node"
     position: [ "100", "200" ]
-    activity: "ShellCommandActivity"
+    activity: "ShellCommand"
     activityVersion: "1"
     activityParameters:
       command: "echo 'hello  cron'"
@@ -42,7 +42,7 @@ nodes:  # 工作流的节点
     name: "webhook启动的node"
     description: "webhook启动的node"
     position: [ "300", "400" ]
-    activity: "ShellCommandActivity"
+    activity: "ShellCommand"
     activityVersion: "1"
     activityParameters:
       command: "echo 'hello  webhook'"
@@ -55,7 +55,7 @@ nodes:  # 工作流的节点
     name: "event启动的node"
     description: "event启动的node"
     position: [ "400", "500" ]
-    activity: "ShellCommandActivity"
+    activity: "ShellCommand"
     activityVersion: "1"
     activityParameters:
       command: "echo 'hello event'"
@@ -68,15 +68,15 @@ nodes:  # 工作流的节点
     name: "普通node节点"
     description: "普通node节点"
     position: [ "500", "600" ]
-    activity: "ShellCommandActivity"
+    activity: "ShellCommand"
     activityVersion: "1"
     activityParameters:
-      command: "echo 'hello  simple'"
+      command: "echo2 'hello  simple' && exit 1"
     retryOnFail: false
     maxTries: 0
     waitBetweenTries: 0
     alwaysOutputData: true
-    onError: "stopWorkflow"
+    onError: "continueRegularOutput"
 edges:
   - id: "cron_start_node-simple_node"
     source: "cron_start_node"

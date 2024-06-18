@@ -1,4 +1,4 @@
-id: "helloworld"  # 工作流的唯一标识
+id: "helloworld_test"  # 工作流的唯一标识
 name: "示例workflow"  # 工作流的名称
 version: "1.0" # 工作流的版本
 description: "用于测试" # 工作流的描述
@@ -32,7 +32,7 @@ nodes:  # 工作流的节点
     activity: "ShellCommandActivity"
     activityVersion: "1"
     activityParameters:
-      command: "echo 'hello  cron'"
+      command: "echo 'hello cron'"
     retryOnFail: false
     maxTries: 0
     waitBetweenTries: 0
@@ -45,7 +45,7 @@ nodes:  # 工作流的节点
     activity: "ShellCommandActivity"
     activityVersion: "1"
     activityParameters:
-      command: "echo 'hello  webhook'"
+      command: "echo 'hello webhook'"
     retryOnFail: false
     maxTries: 0
     waitBetweenTries: 0
@@ -71,7 +71,7 @@ nodes:  # 工作流的节点
     activity: "ShellCommandActivity"
     activityVersion: "1"
     activityParameters:
-      command: "echo 'hello  simple'"
+      command: "echo 'hello simple'"
     retryOnFail: false
     maxTries: 0
     waitBetweenTries: 0
@@ -87,4 +87,3 @@ edges:
   - id: "event_start_node-simple_node"
     source: "event_start_node"
     target: "simple_node"
-
