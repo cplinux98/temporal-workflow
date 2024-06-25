@@ -68,10 +68,15 @@ nodes:  # 工作流的节点
     name: "普通node节点"
     description: "普通node节点"
     position: [ "500", "600" ]
-    activity: "ShellCommand"
+    activity: "Switch"
     activityVersion: "1"
     activityParameters:
-      command: "sleep 36000"
+      case:
+        "variables['key1'] == 'value1'": "simple_node2"
+        "variables['key1'] != 'value1'": "simple_node3"
+#      resume: "webhookSignal"
+#      webhookSignal: "helloworld"
+#      fixedTime: "2024-06-18 16:19:59"
     retryOnFail: false
     maxTries: 0
     waitBetweenTries: 0
@@ -84,7 +89,20 @@ nodes:  # 工作流的节点
     activity: "ShellCommand"
     activityVersion: "1"
     activityParameters:
-      command: "echo 'hello  simple' && exit 0"
+      command: "echo 'hello  simple2' && exit 0"
+    retryOnFail: false
+    maxTries: 0
+    waitBetweenTries: 0
+    alwaysOutputData: true
+    onError: "continueRegularOutput"
+  - id: "simple_node3"  # 当前节点的ID
+    name: "普通node节点3"
+    description: "普通node节点3"
+    position: [ "500", "600" ]
+    activity: "ShellCommand"
+    activityVersion: "1"
+    activityParameters:
+      command: "echo 'hello  simple3' && exit 0"
     retryOnFail: false
     maxTries: 0
     waitBetweenTries: 0

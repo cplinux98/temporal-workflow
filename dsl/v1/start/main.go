@@ -6,6 +6,7 @@ import (
 	"go.temporal.io/sdk/client"
 	"log"
 	v1 "temporal-workflow/dsl/v1"
+	"temporal-workflow/dsl/v1/dslDefinition"
 )
 
 func main() {
@@ -19,7 +20,7 @@ func main() {
 	defer c.Close()
 
 	// 读取DSL中workflow
-	dslWorkflow, err := v1.ParseDSLFromYamlFile("/Users/cp/SynologyDrive/MyProject/temporal-workflow/dsl/v1/test_01.yaml")
+	dslWorkflow, err := dslDefinition.ParseDSLFromYamlFile("/Users/cp/SynologyDrive/MyProject/temporal-workflow/dsl/v1/test_01.yaml")
 	if err != nil {
 		log.Fatalln("Unable to parse workflow definition", err)
 	}

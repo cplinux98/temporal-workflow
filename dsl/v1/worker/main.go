@@ -23,7 +23,7 @@ func main() {
 
 	w.RegisterWorkflow(v1.SimpleDSLWorkflow)
 	w.RegisterActivity(&activities.PythonCommand{})
-	w.RegisterActivity(&activities.ShellCommandV1{})
+	w.RegisterActivity(&activities.ShellCommand{})
 
 	err = w.Run(worker.InterruptCh())
 	if err != nil {

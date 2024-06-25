@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/expr-lang/expr"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 	"sync"
 	"temporal-workflow/dsl/v1/activities"
+	"temporal-workflow/dsl/v1/dslDefinition"
 	"time"
 )
 
@@ -15,24 +17,18 @@ import (
 type WorkflowState struct {
 	CurrentNodeIds     []string            // 当前运行节点id
 	CompletedNodeIds   map[string]struct{} // 运行完成的节点id
-	NotExecutedNodeIds map[string]struct{} // 没有执行的节点id
+	NotExecutedNodeIds map[string]struct{} // 还未执行的节点id
+	SkippedNodeIds     map[string]struct{} // 跳过执行的节点id
 }
 
 // SimpleDSLWorkflow 解析DSL中的node并进行运行
-func SimpleDSLWorkflow(ctx workflow.Context, dslWorkflow Workflow, start string) ([]byte, error) {
-	// 先把初始的共享变量存储起来
-	//shareVariables := make(map[string]interface{})
-	//shareVariables["variables"] = dslWorkflow.Variables
-	//workflowcheck:ignore Only iterates for building another map
-	//for k, v := range dslWorkflow.Variables {
-	//	shareVariables[k] = v
-	//}
-
+func SimpleDSLWorkflow(ctx workflow.Context, dslWorkflow dslDefinition.Workflow, start string) ([]byte, error) {
 	// 初始化状态
 	state := WorkflowState{
 		CurrentNodeIds:     []string{},
 		CompletedNodeIds:   make(map[string]struct{}),
 		NotExecutedNodeIds: make(map[string]struct{}),
+		SkippedNodeIds:     make(map[string]struct{}),
 	}
 
 	// 把所有节点标记为未运行
@@ -56,12 +52,12 @@ func SimpleDSLWorkflow(ctx workflow.Context, dslWorkflow Workflow, start string)
 	shareVariables.Store("variables", dslWorkflow.Variables)
 
 	// 对拓扑进行排序
-	sortedNodes, err := TopSort(dslWorkflow.Nodes, dslWorkflow.Edges)
+	sortedNodes, err := dslDefinition.TopSort(dslWorkflow.Nodes, dslWorkflow.Edges)
 	if err != nil {
 		return nil, err
 	}
 	// 生成执行组
-	executionGroups := DetectParallelExecution(sortedNodes, dslWorkflow.Edges)
+	executionGroups := dslDefinition.DetectParallelExecution(sortedNodes, dslWorkflow.Edges)
 
 	// 获取顶级节点（入度为0的节点）
 	topLevelNodes := getTopLevelNodes(dslWorkflow.Nodes, dslWorkflow.Edges)
@@ -81,7 +77,7 @@ func SimpleDSLWorkflow(ctx workflow.Context, dslWorkflow Workflow, start string)
 	//// 标记
 
 	// 获取从start节点开始的子图
-	markedNodes := MarkNodesFromStart(dslWorkflow.Edges, start)
+	markedNodes := dslDefinition.MarkNodesFromStart(dslWorkflow.Edges, start)
 
 	// 按照顺序执行每个执行组
 	for _, group := range executionGroups {
@@ -96,8 +92,14 @@ func SimpleDSLWorkflow(ctx workflow.Context, dslWorkflow Workflow, start string)
 		for _, nodeId := range group {
 			// 跳过不在子图中的节点
 			if !markedNodes[nodeId] {
+				state.SkippedNodeIds[nodeId] = struct{}{}
 				continue
 			}
+			// 如果节点存在于skippedNodeIds里面，则跳过
+			if _, ok := state.SkippedNodeIds[nodeId]; ok {
+				continue
+			}
+
 			// 更新运行状态
 			state.CurrentNodeIds = append(state.CurrentNodeIds, nodeId)
 			delete(state.NotExecutedNodeIds, nodeId)
@@ -105,95 +107,190 @@ func SimpleDSLWorkflow(ctx workflow.Context, dslWorkflow Workflow, start string)
 			// 根据id获取node对象
 			node := getNodeByID(dslWorkflow.Nodes, nodeId)
 
-			// 根据node里面的activity和activityVersion描述，找到对应的activity和activity的参数
-			activityName := fmt.Sprintf("%sV%s", node.Activity, node.ActivityVersion)
-			// 根据activityName，找到参数结构并填充实例
-			params, err := activities.GetActivityParams(activityName, node.ActivityParameters)
-			if err != nil {
-				return nil, err
-			}
-
-			retryPolicy := &temporal.RetryPolicy{}
-			// 如果配置了重试规则
-			if node.RetryOnFail {
-				retryPolicy = &temporal.RetryPolicy{
-					InitialInterval:    time.Duration(node.WaitBetweenTries) * time.Millisecond, // 重试间隔
-					BackoffCoefficient: 1.0,                                                     // 重试间隔系数
-					MaximumAttempts:    int32(node.MaxTries),                                    // 最大重试次数
+			// 不同的activity类型有不同的处理方式，wait不方便在activity中运行
+			switch node.Activity {
+			case "Wait":
+				var params dslDefinition.WaitParams
+				paramBytes, err := json.Marshal(node.ActivityParameters)
+				if err != nil {
+					logger.Error("Failed to marshal activity parameters", "error", err)
+					return nil, err
 				}
-			} else {
-				// 设置默认的重试策略为1，即不重试
-				retryPolicy = &temporal.RetryPolicy{
-					InitialInterval:    time.Second,
-					BackoffCoefficient: 2.0,
-					MaximumInterval:    time.Second * 100,
-					MaximumAttempts:    1, // Set to 1 to disable retries
+				err = json.Unmarshal(paramBytes, &params)
+				if err != nil {
+					logger.Error("Failed to unmarshal activity parameters", "error", err)
+					return nil, err
 				}
-			}
 
-			// 根据node上的配置信息填充activityOptions，然后执行具体的activity
-			ao := workflow.ActivityOptions{
-				// 这里可以使用指定任务队列来指定运行activity到特定主机/主机组上
-				StartToCloseTimeout: time.Minute * 5, // activity超时时间
-				//StartToCloseTimeout: time.Second * node.timeout, // activity超时时间
-				RetryPolicy: retryPolicy,
-			}
-
-			childCtx = workflow.WithActivityOptions(childCtx, ao)
-
-			future := executeAsync(childCtx, activityName, params)
-			selector.AddFuture(future, func(f workflow.Future) {
-				// 完成activity的回调函数
-				var result interface{}
-				err2 := f.Get(ctx, &result)
-				// 无论运行状态是正常还是异常，这个节点到这里都结束了，更新节点状态
+				switch params.Resume {
+				case dslDefinition.Interval:
+					interval := time.Duration(params.IntervalMillis) * time.Millisecond
+					logger.Info("Sleeping for interval", "interval", interval)
+					err := workflow.Sleep(childCtx, interval)
+					if err != nil {
+						logger.Error("Sleep failed", "error", err)
+						return nil, err
+					}
+				case dslDefinition.FixedTime:
+					//fmt.Println(params.FixedTime)
+					fixedTime, err := time.Parse(time.DateTime, params.FixedTime)
+					if err != nil {
+						logger.Error("Invalid fixed time format", "error", err)
+						return nil, err
+					}
+					duration := time.Until(fixedTime)
+					if duration > 0 {
+						logger.Info("Sleeping until fixed time", "fixedTime", fixedTime)
+						err = workflow.Sleep(childCtx, duration)
+						if err != nil {
+							logger.Error("Sleep failed", "error", err)
+							return nil, err
+						}
+					}
+				case dslDefinition.WebhookSignal:
+					signalChannel := workflow.GetSignalChannel(childCtx, params.WebhookSignal)
+					logger.Info("Waiting for webhook signal", "signal", params.WebhookSignal)
+					signalChannel.Receive(childCtx, nil)
+					logger.Info("Received webhook signal, proceeding with workflow")
+				default:
+					logger.Error("Unknown wait condition type", "type", params.Resume)
+					return nil, fmt.Errorf("unknown wait condition type: %s", params.Resume)
+				}
+				// 更新节点状态，wait类型中webhook可能需要把请求信息存储到变量里面
 				state.CompletedNodeIds[nodeId] = struct{}{}
 				state.CurrentNodeIds = removeNode(state.CurrentNodeIds, nodeId)
+			case "Switch":
+				// 处理Switch节点
+				// 根据表达式不同的结果，跳转到对应的nodeId
+				var params dslDefinition.SwitchParams
+				paramBytes, err := json.Marshal(node.ActivityParameters)
+				if err != nil {
+					// todo: 丰富日志细节
+					logger.Error("Failed to marshal activity parameters", "error", err)
+					return nil, err
+				}
+				err = json.Unmarshal(paramBytes, &params)
+				if err != nil {
+					logger.Error("Failed to unmarshal activity parameters", "error", err)
+					return nil, err
+				}
+				// todo: 应该检查case里面的value是否都是本次workflow的NodeId
+				nextNodeId, skipNodeIds, err := handleSwitchNode(params.Case, &shareVariables)
+				if err != nil {
+					logger.Error("Failed to handle switch node", "error", err)
+					return nil, err
+				}
+				if nextNodeId != "" {
+					// 到这里就是如何让nextNodeId去运行的问题了
+					// 把当前表达式里面不满足条件的放在skippedNodeIds里面，这样下次到了不满足条件的节点就会跳过了
 
-				if err2 != nil {
-					switch node.OnError {
-					case ContinueErrorOutput:
-						shareVariables.Store(nodeId, map[string]interface{}{
-							"result": result,
-							"error":  extractActivityError(err2),
-						})
-						logger.Warn(fmt.Sprintf("Continuing with err on nodeId: %s, result: %v, err: %v", node.Id, result, err2))
-					case ContinueRegularOutput:
-						shareVariables.Store(nodeId, map[string]interface{}{
-							"result": extractActivityError(err2),
-							"error":  extractActivityError(err2),
-						})
-						logger.Warn(fmt.Sprintf("Continuing with regular on nodeId: %s, result: %v, err: %v", node.Id, result, err2))
-					case StopWorkflow:
-						logger.Error(fmt.Sprintf("Stop workflow execution on nodeId:%s, failed: %v", node.Id, err2))
-						cancelHandler()
-						activityErr = err2
-						return
-					default:
-						activityErr = fmt.Errorf("unknown failure type: %v", node.OnError)
-						return
+					for _, v := range skipNodeIds {
+						state.SkippedNodeIds[v] = struct{}{}
+					}
+				}
+				logger.Info(fmt.Sprintf("Switched node: %s, SkipedNodeIds: %v", nextNodeId, state.SkippedNodeIds))
+				// 结束，把switch这个节点状态更新
+				state.CompletedNodeIds[nodeId] = struct{}{}
+				state.CurrentNodeIds = removeNode(state.CurrentNodeIds, nextNodeId)
+
+			default:
+
+				// 根据node里面的activity和activityVersion描述，找到对应的activity和activity的参数
+				activityName := fmt.Sprintf("%sV%s", node.Activity, node.ActivityVersion)
+				// 根据activityName，找到参数结构并填充实例
+				params, err := activities.GetActivityParams(activityName, node.ActivityParameters)
+				if err != nil {
+					return nil, err
+				}
+
+				retryPolicy := &temporal.RetryPolicy{}
+				// 如果配置了重试规则
+				if node.RetryOnFail {
+					retryPolicy = &temporal.RetryPolicy{
+						InitialInterval:    time.Duration(node.WaitBetweenTries) * time.Millisecond, // 重试间隔
+						BackoffCoefficient: 1.0,                                                     // 重试间隔系数
+						MaximumAttempts:    int32(node.MaxTries),                                    // 最大重试次数
 					}
 				} else {
-					shareVariables.Store(nodeId, map[string]interface{}{
-						"result": result,
-						"error":  err2,
-					})
-				}
-				//// 把完成的节点状态更新
-				//state.CompletedNodeIds[nodeId] = struct{}{}
-				//state.CurrentNodeIds = removeNode(state.CurrentNodeIds, nodeId)
-
-				// 转换结果为json格式
-				byteResult, err := json.Marshal(result)
-				if err != nil {
-					logger.Error(fmt.Sprintf("Marshal future failed: %v", err))
+					// 设置默认的重试策略为1，即不重试
+					retryPolicy = &temporal.RetryPolicy{
+						InitialInterval:    time.Second,
+						BackoffCoefficient: 2.0,
+						MaximumInterval:    time.Second * 100,
+						MaximumAttempts:    1, // Set to 1 to disable retries
+					}
 				}
 
-				logger.Info(fmt.Sprintf("Execution Group %v %v", group, string(byteResult)))
-			})
+				// 根据node上的配置信息填充activityOptions，然后执行具体的activity
+				ao := workflow.ActivityOptions{
+					// 这里可以使用指定任务队列来指定运行activity到特定主机/主机组上
+					StartToCloseTimeout: time.Minute * 5, // activity超时时间(必填)
+					//StartToCloseTimeout: time.Second * node.timeout, // activity超时时间
+					RetryPolicy: retryPolicy, // 重试策略
+					ActivityID:  nodeId,      // 设置activityId为nodeId
+				}
 
-			//future := workflow.ExecuteActivity(ctx, activityName, params)
-			futures = append(futures, future)
+				childCtx = workflow.WithActivityOptions(childCtx, ao)
+
+				future := executeAsync(childCtx, activityName, params)
+
+				// 这里收集信息
+				//fmt.Println(workflow.GetInfo(childCtx).WorkflowExecution.)
+
+				selector.AddFuture(future, func(f workflow.Future) {
+					// 完成activity的回调函数
+					var result interface{}
+					err2 := f.Get(ctx, &result)
+					// 无论运行状态是正常还是异常，这个节点到这里都结束了，更新节点状态
+					state.CompletedNodeIds[nodeId] = struct{}{}
+					state.CurrentNodeIds = removeNode(state.CurrentNodeIds, nodeId)
+
+					if err2 != nil {
+						switch node.OnError {
+						case dslDefinition.ContinueErrorOutput:
+							shareVariables.Store(nodeId, map[string]interface{}{
+								"result": result,
+								"error":  extractActivityError(err2),
+							})
+							logger.Warn(fmt.Sprintf("Continuing with err on nodeId: %s, result: %v, err: %v", node.Id, result, err2))
+						case dslDefinition.ContinueRegularOutput:
+							shareVariables.Store(nodeId, map[string]interface{}{
+								"result": extractActivityError(err2),
+								"error":  extractActivityError(err2),
+							})
+							logger.Warn(fmt.Sprintf("Continuing with regular on nodeId: %s, result: %v, err: %v", node.Id, result, err2))
+						case dslDefinition.StopWorkflow:
+							logger.Error(fmt.Sprintf("Stop workflow execution on nodeId:%s, failed: %v", node.Id, err2))
+							cancelHandler()
+							activityErr = err2
+							return
+						default:
+							activityErr = fmt.Errorf("unknown failure type: %v", node.OnError)
+							return
+						}
+					} else {
+						shareVariables.Store(nodeId, map[string]interface{}{
+							"result": result,
+							"error":  err2,
+						})
+					}
+					//// 把完成的节点状态更新
+					//state.CompletedNodeIds[nodeId] = struct{}{}
+					//state.CurrentNodeIds = removeNode(state.CurrentNodeIds, nodeId)
+
+					// 转换结果为json格式
+					byteResult, err := json.Marshal(result)
+					if err != nil {
+						logger.Error(fmt.Sprintf("Marshal future failed: %v", err))
+					}
+
+					logger.Info(fmt.Sprintf("Execution Group %v %v", group, string(byteResult)))
+				})
+
+				//future := workflow.ExecuteActivity(ctx, activityName, params)
+				futures = append(futures, future)
+			}
+
 		}
 
 		// 等待所有并行activity完成
@@ -268,19 +365,19 @@ func SimpleDSLWorkflow(ctx workflow.Context, dslWorkflow Workflow, start string)
 }
 
 // 根据 ID 获取节点
-func getNodeByID(nodes []Node, id string) Node {
+func getNodeByID(nodes []dslDefinition.Node, id string) dslDefinition.Node {
 	for _, node := range nodes {
 		if node.Id == id {
 			return node
 		}
 	}
-	return Node{}
+	return dslDefinition.Node{}
 }
 
 // getTopLevelNodes 获取顶级节点（没有target指向的节点）
-func getTopLevelNodes(nodes []Node, edges []Edge) map[string]Node {
+func getTopLevelNodes(nodes []dslDefinition.Node, edges []dslDefinition.Edge) map[string]dslDefinition.Node {
 	inDegree := make(map[string]int)
-	topLevelNodes := make(map[string]Node)
+	topLevelNodes := make(map[string]dslDefinition.Node)
 
 	// 初始化入度
 	for _, node := range nodes {
@@ -352,4 +449,34 @@ func removeNode(slice []string, nodeID string) []string {
 		}
 	}
 	return slice
+}
+
+// 根据规则进行判断，返回下一节点id和跳过的ids
+func handleSwitchNode(cases map[string]string, shareVariables *sync.Map) (string, []string, error) {
+	env := make(map[string]interface{})
+	shareVariables.Range(func(key, value any) bool {
+		env[key.(string)] = value
+		return true
+	})
+	skipNodeIds := make([]string, 0)
+	var returnNodeId string
+
+	for exprStr, targetNodeId := range cases {
+		program, err := expr.Compile(exprStr, expr.Env(env))
+		if err != nil {
+			return "", skipNodeIds, fmt.Errorf("failed to compile expression %s: %v", exprStr, err)
+		}
+
+		output, err := expr.Run(program, env)
+		if err != nil {
+			return "", skipNodeIds, fmt.Errorf("failed to run expression %s: %v", exprStr, err)
+		}
+		if result, ok := output.(bool); ok && result {
+			returnNodeId = targetNodeId
+		} else {
+			skipNodeIds = append(skipNodeIds, targetNodeId)
+		}
+	}
+
+	return returnNodeId, skipNodeIds, nil
 }

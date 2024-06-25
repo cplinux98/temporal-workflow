@@ -7,7 +7,7 @@ import (
 	"os/exec"
 )
 
-type ShellCommandV1 struct {
+type ShellCommand struct {
 }
 
 type ShellCommandParams struct {
@@ -20,7 +20,16 @@ type ShellCommandResult struct {
 	Stderr string `yaml:"stderr"` // 标准错误输出
 }
 
-func (s *ShellCommandV1) ShellCommandV1(ctx context.Context, params *ShellCommandParams) (*ShellCommandResult, error) {
+// ShellCommandV1
+//
+//	@Description: 运行shell命令 v1版本
+//	@Author cplinux98 2024-06-19 13:45:12
+//	@receiver s
+//	@param ctx
+//	@param params
+//	@return *ShellCommandResult
+//	@return error
+func (s *ShellCommand) ShellCommandV1(ctx context.Context, params *ShellCommandParams) (*ShellCommandResult, error) {
 	cmd := exec.Command("/bin/sh", "-c", params.Command)
 
 	var stdout, stderr bytes.Buffer
